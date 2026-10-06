@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Tailwind v4 defaults `dark:` to the OS color-scheme media query.
+   The app toggles dark mode itself by adding/removing a `.dark` class
+   on <html>, so `dark:` must key off that class instead. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* =========================
    Resume Preview
    ========================= */

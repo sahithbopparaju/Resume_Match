@@ -3,19 +3,17 @@ import json
 import tempfile
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import Depends, FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from parsers.resume_parser import extract_text_from_pdf
 from ai.groq_match import analyze_resume_match
 from ai.gemini_skillgap import analyze_skill_gap
-from ai.tailored_resume import (
-    generate_tailored_resume_until_target,
-    render_tailored_resume_pdf,
-)
+from ai.tailored_resume import generate_tailored_resume_until_target
 from ai.openrouter_cover import generate_cover_letter
 from ai.tavily_search import generate_interview_questions
+from auth.supabase_auth import require_current_user
 
 
 # Load .env from the backend folder
@@ -31,12 +29,22 @@ app = FastAPI()
 
 
 # CORS configuration
+#
+# CORS_ORIGINS (comma-separated) configures explicit allowed origins, e.g.
+# a production frontend domain. Locally, Vite picks the next free port
+# (5174, 5175, ...) when 5173 is already taken, so the dev frontend's
+# actual origin isn't always 5173 — allow_origin_regex covers any
+# localhost/127.0.0.1 port for dev convenience regardless of CORS_ORIGINS.
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=cors_origins,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -55,6 +63,7 @@ def root():
 async def parse_resume(
     resume: UploadFile = File(...),
     job_description: str = Form(...),
+    user=Depends(require_current_user),
 ):
     with tempfile.NamedTemporaryFile(
         delete=False,
@@ -80,6 +89,7 @@ async def parse_resume(
 async def analyze_match(
     resume_text: str = Form(...),
     job_description: str = Form(...),
+    user=Depends(require_current_user),
 ):
     result = analyze_resume_match(
         resume_text,
@@ -95,6 +105,7 @@ async def analyze_match(
 async def skill_gap(
     resume_text: str = Form(...),
     job_description: str = Form(...),
+    user=Depends(require_current_user),
 ):
     result = analyze_skill_gap(
         resume_text,
@@ -108,34 +119,41 @@ async def skill_gap(
 
 @app.post("/tailored-resume")
 async def tailored_resume(
-    # Accepted for backward compatibility with the upload form, but no
-    # longer used: the tailored resume is now rendered as a fresh PDF
-    # from structured content rather than edited in place.
     resume: UploadFile = File(...),
+    # No longer used for generation (the original PDF's own text is
+    # re-extracted internally for consistency) — accepted for backward
+    # compatibility with the existing upload form.
     resume_text: str = Form(...),
     job_description: str = Form(...),
     match_analysis: str = Form(...),
+    user=Depends(require_current_user),
 ):
+    original_path = None
     output_path = None
 
     try:
-        output_file = tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             delete=False,
-            suffix="_tailored.pdf",
-        )
-        output_path = output_file.name
-        output_file.close()
+            suffix=".pdf",
+        ) as original_file:
+            original_file.write(await resume.read())
+            original_path = original_file.name
 
         match_data = json.loads(match_analysis)
 
         result = generate_tailored_resume_until_target(
-            resume_text=resume_text,
+            original_pdf_path=original_path,
             job_description=job_description,
             match_analysis=match_data,
             target_score=75,
         )
 
-        render_tailored_resume_pdf(result, output_path)
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix="_tailored.pdf",
+        ) as output_file:
+            output_file.write(result["pdf_bytes"])
+            output_path = output_file.name
 
         return FileResponse(
             output_path,
@@ -150,11 +168,16 @@ async def tailored_resume(
         print(f"Tailored resume error: {error}")
         raise
 
+    finally:
+        if original_path and os.path.exists(original_path):
+            os.remove(original_path)
+
 
 @app.post("/cover-letter")
 async def cover_letter(
     resume_text: str = Form(...),
     job_description: str = Form(...),
+    user=Depends(require_current_user),
 ):
     result = generate_cover_letter(
         resume_text,
@@ -170,6 +193,7 @@ async def cover_letter(
 async def interview_prep(
     resume_text: str = Form(...),
     job_description: str = Form(...),
+    user=Depends(require_current_user),
 ):
     result = generate_interview_questions(
         resume_text,

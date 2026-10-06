@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import InterviewPrep from "./components/InterviewPrep";
 import History from "./components/History";
+import Login from "./components/Login";
 
 import {
   AlertCircle,
@@ -14,6 +15,7 @@ import {
   Download,
   FileText,
   Lightbulb,
+  LogOut,
   Lock,
   Mail,
   MessageSquare,
@@ -37,6 +39,9 @@ import {
   generateTailoredResume,
   generateCoverLetter,
   generateInterviewPrep,
+  getCurrentUser,
+  subscribeToAuthChanges,
+  logout,
 } from "./services/api";
 
 
@@ -262,6 +267,10 @@ function App() {
   const [tailoredResumeLoading, setTailoredResumeLoading] = useState(false);
   const [tailoredResumeError, setTailoredResumeError] = useState("");
 
+  const [skillGapLoading, setSkillGapLoading] = useState(false);
+
+  const [authStatus, setAuthStatus] = useState("checking");
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
@@ -270,6 +279,55 @@ function App() {
       darkMode ? "dark" : "light"
     );
   }, [darkMode]);
+
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getCurrentUser()
+      .then((user) => {
+        if (cancelled) return;
+        setCurrentUser(user);
+        setAuthStatus(user ? "authenticated" : "unauthenticated");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCurrentUser(null);
+        setAuthStatus("unauthenticated");
+      });
+
+    // Keeps state in sync with Supabase's own session (login elsewhere,
+    // logout, token refresh/expiry) rather than only checking once.
+    const unsubscribe = subscribeToAuthChanges((user) => {
+      if (cancelled) return;
+      setCurrentUser(user);
+      setAuthStatus(user ? "authenticated" : "unauthenticated");
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+
+  const handleAuthenticated = (user) => {
+    setCurrentUser(user);
+    setAuthStatus("authenticated");
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCurrentUser(null);
+      setAuthStatus("unauthenticated");
+      setPage("landing");
+      setAnalysisData(null);
+    }
+  };
 
 
   const saveToHistory = (data) => {
@@ -325,75 +383,25 @@ function App() {
         jobDescription
       );
 
-      // 2. Calculate ATS match
+      // 2. Calculate ATS match — this is the fast, required result. Show
+      // it immediately instead of making the user wait for skill-gap and
+      // tailored-resume generation (which call slower AI models, the
+      // latter with its own multi-attempt retry loop) before they see
+      // anything at all.
       const matchData = await analyzeMatch(
         parsedData.resume_text,
         jobDescription
       );
 
-      // 3. Generate skill gap
-      const skillGapData = await analyzeSkillGap(
-        parsedData.resume_text,
-        jobDescription
-      );
-
-      // 4. Generate the tailored resume for every match score. The
-      // backend itself targets an ATS score above 75 for the tailored
-      // output via its own verify-and-retry loop.
-      let tailoredResumeUrl = null;
-      let tailoredResumeAtsScore = null;
-
-      setTailoredResumeError("");
-
-      try {
-        setTailoredResumeLoading(true);
-
-        const { blob: tailoredResumeBlob, atsScore } = await generateTailoredResume(
-          resume,
-          parsedData.resume_text,
-          jobDescription,
-          matchData.match_analysis
-        );
-
-        tailoredResumeUrl = URL.createObjectURL(
-          tailoredResumeBlob
-        );
-        tailoredResumeAtsScore = atsScore;
-      } catch (tailoredResumeErr) {
-        // A failed tailored resume should not discard the match score
-        // and skill gap results that already succeeded.
-        console.error(tailoredResumeErr);
-
-        setTailoredResumeError(
-          tailoredResumeErr?.message ||
-          "Unable to generate the tailored resume."
-        );
-      } finally {
-        setTailoredResumeLoading(false);
-      }
-
-      // 5. Store complete analysis
       setAnalysisData({
         resume,
         jobDescription,
         resumeText: parsedData.resume_text,
         filename: parsedData.filename,
         matchAnalysis: matchData.match_analysis,
-        skillGap: skillGapData.skill_gap,
-        tailoredResumeUrl,
-        tailoredResumeAtsScore,
-      });
-
-      // 6. Save history
-      saveToHistory({
-        resume,
-        jobDescription,
-        resumeText: parsedData.resume_text,
-        filename: parsedData.filename,
-        matchAnalysis: matchData.match_analysis,
-        skillGap: skillGapData.skill_gap,
-        tailoredResumeUrl,
-        tailoredResumeAtsScore,
+        skillGap: null,
+        tailoredResumeUrl: null,
+        tailoredResumeAtsScore: null,
       });
 
       setCoverLetter("");
@@ -401,6 +409,86 @@ function App() {
       setCopied(false);
       setActiveTab("overview");
       setPage("analysis");
+      setLoading(false);
+
+      // 3 & 4. Skill gap and tailored-resume generation don't depend on
+      // each other, only on the match analysis above, so run them in
+      // parallel in the background now that the score is already on
+      // screen — each fills in its own section of the dashboard (which
+      // already has its own loading state) as soon as it resolves.
+      setSkillGapLoading(true);
+      setTailoredResumeError("");
+      setTailoredResumeLoading(true);
+
+      const skillGapPromise = analyzeSkillGap(
+        parsedData.resume_text,
+        jobDescription
+      )
+        .then((skillGapData) => {
+          setAnalysisData((previous) =>
+            previous && { ...previous, skillGap: skillGapData.skill_gap }
+          );
+
+          return skillGapData.skill_gap;
+        })
+        .catch((skillGapErr) => {
+          // A failed skill-gap call must not discard the match score
+          // that's already showing, or block the tailored resume below.
+          console.error(skillGapErr);
+          return null;
+        })
+        .finally(() => setSkillGapLoading(false));
+
+      const tailoredResumePromise = generateTailoredResume(
+        resume,
+        parsedData.resume_text,
+        jobDescription,
+        matchData.match_analysis
+      )
+        .then(({ blob, atsScore }) => {
+          const tailoredResumeUrl = URL.createObjectURL(blob);
+
+          setAnalysisData((previous) =>
+            previous && {
+              ...previous,
+              tailoredResumeUrl,
+              tailoredResumeAtsScore: atsScore,
+            }
+          );
+
+          return { tailoredResumeUrl, tailoredResumeAtsScore: atsScore };
+        })
+        .catch((tailoredResumeErr) => {
+          // A failed tailored resume should not discard the match score
+          // and skill gap results that already succeeded.
+          console.error(tailoredResumeErr);
+
+          setTailoredResumeError(
+            tailoredResumeErr?.message ||
+            "Unable to generate the tailored resume."
+          );
+
+          return null;
+        })
+        .finally(() => setTailoredResumeLoading(false));
+
+      const [skillGap, tailoredResume] = await Promise.all([
+        skillGapPromise,
+        tailoredResumePromise,
+      ]);
+
+      // 6. Save history once the full bundle has settled, same shape as
+      // before — only when it's saved has moved, not what's saved.
+      saveToHistory({
+        resume,
+        jobDescription,
+        resumeText: parsedData.resume_text,
+        filename: parsedData.filename,
+        matchAnalysis: matchData.match_analysis,
+        skillGap,
+        tailoredResumeUrl: tailoredResume?.tailoredResumeUrl ?? null,
+        tailoredResumeAtsScore: tailoredResume?.tailoredResumeAtsScore ?? null,
+      });
 
     } catch (err) {
       console.error(err);
@@ -409,7 +497,6 @@ function App() {
         err?.message ||
         "Something went wrong while analyzing your resume. Please try again."
       );
-    } finally {
       setLoading(false);
     }
   };
@@ -623,10 +710,25 @@ const handleGenerateInterviewPrep = async () => {
   };
 
 
+  if (authStatus === "checking") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <RefreshCw className="h-6 w-6 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+
+  if (authStatus === "unauthenticated") {
+    return <Login onAuthenticated={handleAuthenticated} />;
+  }
+
+
   if (page === "landing") {
     return (
       <LandingPage
         onStart={handleStart}
+        user={currentUser}
+        onLogout={handleLogout}
       />
     );
   }
@@ -844,6 +946,16 @@ const handleGenerateInterviewPrep = async () => {
                 ) : (
                   <Moon className="h-4 w-4" />
                 )}
+              </button>
+
+              {/* Logout */}
+              <button
+                onClick={handleLogout}
+                className={`flex h-9 w-9 items-center justify-center rounded-lg border transition ${theme.border} ${theme.muted} ${theme.hover}`}
+                aria-label="Log out"
+                title={currentUser?.email ? `Log out (${currentUser.email})` : "Log out"}
+              >
+                <LogOut className="h-4 w-4" />
               </button>
 
               {/* New Analysis */}
@@ -1084,9 +1196,23 @@ const handleGenerateInterviewPrep = async () => {
                   </div>
 
                   <div className="p-1">
-                    <SkillGapReport
-                      skillGap={analysisData?.skillGap}
-                    />
+                    {skillGapLoading ? (
+                      <div className="flex min-h-[320px] items-center justify-center">
+                        <div className="text-center">
+                          <RefreshCw className="mx-auto h-7 w-7 animate-spin text-slate-400" />
+                          <p className={`mt-4 text-sm font-semibold ${theme.text}`}>
+                            Analyzing skill gaps...
+                          </p>
+                          <p className={`mt-1 text-xs ${theme.muted}`}>
+                            This runs in the background after your ATS score.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <SkillGapReport
+                        skillGap={analysisData?.skillGap}
+                      />
+                    )}
                   </div>
                 </div>
 

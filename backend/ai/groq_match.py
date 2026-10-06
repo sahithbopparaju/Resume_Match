@@ -13,19 +13,78 @@ from ai.retry_utils import call_with_retry
 # ---------------------------------------------------------
 
 SKILL_ALIASES = {
+    # --- Languages ---
     "python": ["python"],
+    "java": ["java"],
+    "c++": ["c++", "cpp"],
+    "c": ["c programming"],
+    "c#": ["c#", "csharp"],
+    "javascript": ["javascript", "js"],
+    "typescript": ["typescript", "ts"],
+    "r": ["r programming", "r language"],
+    "go": ["golang"],
+    "scala": ["scala"],
+    "bash": ["bash", "shell scripting", "shell script"],
+
+    # --- Web / full-stack ---
+    "html": ["html", "html5"],
+    "css": ["css", "css3"],
+    "react": ["react", "react.js", "reactjs"],
+    "node.js": ["node.js", "node js", "nodejs"],
+    "express": ["express.js", "express js", "expressjs"],
+    "django": ["django"],
+    "flask": ["flask"],
+    "spring boot": ["spring boot", "spring framework"],
+    "rest api": ["rest api", "restful api", "rest apis", "restful apis"],
+    "graphql": ["graphql"],
+    "api development": ["api development", "api design"],
+
+    # --- Data / databases ---
+    "sql": ["sql"],
+    "mysql": ["mysql"],
+    "postgresql": ["postgresql", "postgres"],
+    "mongodb": ["mongodb", "mongo db"],
+    "redis": ["redis"],
+    "elasticsearch": ["elasticsearch"],
+    "data structures": ["data structures"],
+    "algorithms": ["algorithms"],
+    "oop": ["oop", "object oriented programming", "object-oriented programming"],
+
+    # --- Cloud / devops ---
+    "git": ["git"],
+    "github": ["github"],
+    "docker": ["docker"],
+    "kubernetes": ["kubernetes", "k8s"],
+    "aws": ["aws", "amazon web services"],
+    "azure": ["azure"],
+    "gcp": ["gcp", "google cloud"],
+    "ci/cd": ["ci/cd", "ci cd", "continuous integration", "continuous deployment"],
+    "jenkins": ["jenkins"],
+    "linux": ["linux", "unix"],
+    "terraform": ["terraform"],
+
+    # --- Testing / methodology ---
+    "unit testing": ["unit testing", "unit tests"],
+    "agile": ["agile"],
+    "scrum": ["scrum"],
+    "jira": ["jira"],
+    "debugging": ["debugging"],
+
+    # --- Data science / ML / AI ---
     "numpy": ["numpy"],
     "pandas": ["pandas"],
     "scikit-learn": ["scikit-learn", "sklearn", "scikit learn"],
     "machine learning": ["machine learning", "ml"],
     "deep learning": ["deep learning"],
     "nlp": ["nlp", "natural language processing"],
+    "computer vision": ["computer vision", "cv", "opencv"],
     "fastapi": ["fastapi"],
-    "rest api": ["rest api", "restful api", "rest apis"],
     "llm": ["llm", "llms", "large language model", "large language models"],
     "generative ai": ["generative ai", "genai"],
+    "prompt engineering": ["prompt engineering"],
     "langchain": ["langchain"],
-    "rag": ["rag", "retrieval augmented generation"],
+    "rag": ["rag", "retrieval augmented generation", "retrieval-augmented generation"],
+    "agentic ai": ["agentic ai", "agentic"],
     "mcp": ["mcp", "model context protocol"],
     "embeddings": ["embedding", "embeddings", "embedding models"],
     "vector database": [
@@ -36,28 +95,25 @@ SKILL_ALIASES = {
     ],
     "faiss": ["faiss"],
     "hugging face": ["hugging face", "huggingface"],
+    "transformers": ["transformers", "transformer models"],
     "groq": ["groq"],
     "gemini": ["gemini"],
     "openai": ["openai"],
-    "sql": ["sql"],
-    "mysql": ["mysql"],
-    "postgresql": ["postgresql", "postgres"],
-    "mongodb": ["mongodb", "mongo db"],
-    "git": ["git"],
-    "github": ["github"],
-    "docker": ["docker"],
-    "kubernetes": ["kubernetes", "k8s"],
-    "aws": ["aws", "amazon web services"],
-    "azure": ["azure"],
-    "gcp": ["gcp", "google cloud"],
-    "power bi": ["power bi"],
-    "excel": ["excel"],
-    "streamlit": ["streamlit"],
     "tensorflow": ["tensorflow"],
     "pytorch": ["pytorch"],
+    "keras": ["keras"],
     "matplotlib": ["matplotlib"],
     "seaborn": ["seaborn"],
+    "data analysis": ["data analysis"],
+    "data visualization": ["data visualization"],
+    "etl": ["etl", "data pipeline", "data pipelines"],
+
+    # --- BI / productivity tools ---
+    "power bi": ["power bi"],
+    "excel": ["excel"],
     "dax": ["dax"],
+    "tableau": ["tableau"],
+    "streamlit": ["streamlit"],
 }
 
 
@@ -222,6 +278,23 @@ def calculate_keyword_score(resume_text, job_description):
         "scalable",
         "accuracy",
         "performance",
+        "design",
+        "architecture",
+        "collaborate",
+        "collaboration",
+        "maintain",
+        "automation",
+        "automate",
+        "monitoring",
+        "debug",
+        "debugging",
+        "troubleshoot",
+        "analyze",
+        "analysis",
+        "research",
+        "scale",
+        "security",
+        "documentation",
     ]
 
     jd_term_counts = Counter(
@@ -280,7 +353,10 @@ def calculate_keyword_score(resume_text, job_description):
     # 4. Overall keyword relevance — 10%
     # -----------------------------------------------------
 
-    # Remove very common English words.
+    # Remove very common English words and generic job-posting
+    # boilerplate that no resume could ever be expected to echo —
+    # otherwise this component unfairly penalizes genuinely
+    # well-tailored resumes for not repeating filler text.
     stop_words = {
         "the", "and", "for", "with", "that", "this", "from",
         "are", "you", "your", "our", "will", "have", "has",
@@ -288,6 +364,19 @@ def calculate_keyword_score(resume_text, job_description):
         "job", "candidate", "experience", "years", "ability",
         "strong", "good", "knowledge", "skills", "required",
         "preferred", "responsibilities", "requirements",
+        "about", "across", "also", "etc", "including", "include",
+        "includes", "within", "ensure", "ensuring", "maintain",
+        "maintaining", "provide", "providing", "support",
+        "supporting", "related", "various", "multiple", "new",
+        "existing", "current", "opportunity", "opportunities",
+        "company", "team", "teams", "environment", "environments",
+        "position", "positions", "apply", "applicant", "applicants",
+        "employment", "employer", "equal", "diversity", "inclusion",
+        "benefits", "salary", "compensation", "please", "email",
+        "resume", "cover", "letter", "contact", "looking", "we're",
+        "were", "who", "what", "when", "where", "how", "can",
+        "should", "must", "need", "needs", "like", "please",
+        "join", "www", "http", "https", "com",
     }
 
     resume_words = {
@@ -323,6 +412,18 @@ def calculate_keyword_score(resume_text, job_description):
 
     final_score = max(0, min(100, final_score))
 
+    missing_preferred_skills = [
+        skill
+        for skill in (preferred_jd_skills if preferred_section else [])
+        if skill not in (matched_preferred_skills if preferred_section else [])
+    ]
+
+    # A sample of significant JD words that never appear in the resume
+    # at all, beyond the already-tracked skill/preferred lists — gives
+    # the tailoring prompt concrete, genuine terms to truthfully weave
+    # in if the candidate's real experience actually supports them.
+    missing_relevance_keywords = sorted(jd_words - resume_words)[:25]
+
     return {
         "match_score": final_score,
         "jd_skills": required_jd_skills,
@@ -332,6 +433,8 @@ def calculate_keyword_score(resume_text, job_description):
             for skill in required_jd_skills
             if skill not in matched_required_skills
         ],
+        "missing_preferred_skills": missing_preferred_skills,
+        "missing_relevance_keywords": missing_relevance_keywords,
     }
 
 

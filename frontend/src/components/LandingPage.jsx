@@ -1,6 +1,6 @@
 import { ArrowRight, Sparkles } from "lucide-react";
 
-function LandingPage({ onStart }) {
+function LandingPage({ onStart, user, onLogout }) {
   return (
     <div className="min-h-screen bg-white text-slate-950">
       {/* Navbar */}
@@ -46,13 +46,24 @@ function LandingPage({ onStart }) {
           </nav>
 
           {/* CTA */}
-          <button
-            onClick={onStart}
-            className="group flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 hover:shadow-md"
-          >
-            Analyze Resume
-            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </button>
+          <div className="flex items-center gap-4">
+            {user && (
+              <button
+                onClick={onLogout}
+                className="text-sm font-medium text-slate-500 transition hover:text-slate-950"
+              >
+                Logout
+              </button>
+            )}
+
+            <button
+              onClick={onStart}
+              className="group flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 hover:shadow-md"
+            >
+              Analyze Resume
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            </button>
+          </div>
         </div>
       </header>
 
