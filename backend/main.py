@@ -1,13 +1,14 @@
+import logging
 import os
 import json
 import tempfile
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, UploadFile, File, Form
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from parsers.resume_parser import extract_text_from_pdf
+from parsers.resume_parser import extract_text_from_pdf, ResumeParsingError
 from ai.groq_match import analyze_resume_match
 from ai.gemini_skillgap import analyze_skill_gap
 from ai.tailored_resume import generate_tailored_resume_until_target
@@ -23,6 +24,13 @@ load_dotenv(
         ".env",
     )
 )
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI()
@@ -79,6 +87,16 @@ async def parse_resume(
             "filename": resume.filename,
             "resume_text": text,
         }
+
+    except ResumeParsingError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    except Exception:
+        logger.exception("Unexpected error while parsing resume upload.")
+        raise HTTPException(
+            status_code=500,
+            detail="Something went wrong while processing your resume. Please try again.",
+        )
 
     finally:
         if os.path.exists(temp_path):
