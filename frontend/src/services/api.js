@@ -26,9 +26,16 @@ async function authHeaders() {
   return { Authorization: `Bearer ${token}` };
 }
 
+
 export async function requestOtp(email) {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (!normalizedEmail) {
+    throw new Error("Please enter your email address.");
+  }
+
   const { error } = await supabase.auth.signInWithOtp({
-    email: email.trim(),
+    email: normalizedEmail,
     options: {
       shouldCreateUser: true,
     },
